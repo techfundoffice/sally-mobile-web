@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,24 +7,88 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { Colors, Spacing, BorderRadius, FontSizes, FontWeights } from '../constants/theme';
 import { VideoModel, VideoDuration, VideoResolution, VideoAspectRatio } from '../types';
 import { Button } from './Button';
 import { Input } from './Input';
 import { useVideoStore } from '../store/useVideoStore';
+import { FALAI_MODELS } from '../services/falai';
 
 export const VideoGenerationForm: React.FC = () => {
+  const router = useRouter();
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState<VideoModel>('sally-2');
+  const [model, setModel] = useState<string>('sally-2');
   const [duration, setDuration] = useState<VideoDuration>(8);
   const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>('portrait');
   const [resolution, setResolution] = useState<VideoResolution>('720x1280');
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [checkingApiKey, setCheckingApiKey] = useState(true);
 
-  const { generateVideo } = useVideoStore();
+  const {
+    generateVideo,
+    provider,
+    getOpenAIApiKey,
+    getFalAIApiKey,
+    openaiApiKey,
+    falaiApiKey,
+  } = useVideoStore();
+
+  // Check for API key on mount and when provider changes
+  useEffect(() => {
+    checkApiKey();
+  }, [provider]);
+
+  const checkApiKey = async () => {
+    setCheckingApiKey(true);
+    try {
+      if (provider === 'openai') {
+        const key = await getOpenAIApiKey();
+        setHasApiKey(!!key);
+      } else {
+        const key = await getFalAIApiKey();
+        setHasApiKey(!!key);
+      }
+    } catch (error) {
+      setHasApiKey(false);
+    } finally {
+      setCheckingApiKey(false);
+    }
+  };
+
+  // Get available models based on provider
+  const getAvailableModels = () => {
+    if (provider === 'openai') {
+      return [
+        { id: 'sally-2', name: 'Sally 2 (Fast)', description: '~30s generation' },
+        { id: 'sally-2-pro', name: 'Sally 2 Pro', description: 'Higher quality' },
+      ];
+    } else {
+      // Filter fal.ai models based on whether we have a reference image
+      const modelType = referenceImage ? 'image-to-video' : 'text-to-video';
+      return FALAI_MODELS
+        .filter(m => m.type === modelType)
+        .map(m => ({
+          id: m.id,
+          name: m.name,
+          description: m.description.substring(0, 50) + '...',
+        }));
+    }
+  };
+
+  const availableModels = getAvailableModels();
+
+  // Reset model when provider or reference image changes
+  useEffect(() => {
+    if (availableModels.length > 0 && !availableModels.find(m => m.id === model)) {
+      setModel(availableModels[0].id);
+    }
+  }, [provider, referenceImage]);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -47,28 +111,77 @@ export const VideoGenerationForm: React.FC = () => {
   };
 
   const handleGenerate = async () => {
+    // Check API key first
+    if (!hasApiKey) {
+      const providerName = provider === 'openai' ? 'OpenAI' : 'fal.ai';
+      Alert.alert(
+        'API Key Required',
+        `Please add your ${providerName} API key in the Profile tab to generate videos.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Go to Profile', 
+            onPress: () => router.push('/(tabs)/profile')
+          }
+        ]
+      );
+      return;
+    }
+
     if (!prompt.trim()) {
-      Alert.alert('Error', 'Please enter a prompt');
+      Alert.alert('Prompt Required', 'Please enter a description for your video.');
+      return;
+    }
+
+    if (prompt.trim().length < 10) {
+      Alert.alert('Prompt Too Short', 'Please provide a more detailed description (at least 10 characters).');
       return;
     }
 
     setIsGenerating(true);
     try {
-      await generateVideo({
+      const video = await generateVideo({
         prompt: prompt.trim(),
         model,
-        size: resolution,
-        seconds: duration,
-        input_reference: referenceImage || undefined,
+        duration,
+        resolution,
+        aspectRatio,
+        imageUrl: referenceImage || undefined,
       });
 
-      Alert.alert('Success', 'Video generation started! Check the Library tab to monitor progress.');
+      Alert.alert(
+        'Video Generation Started!',
+        `Your video is being generated with ${provider === 'openai' ? 'OpenAI Sally' : 'fal.ai'}. Check the Library tab to monitor progress.\n\nVideo ID: ${video.id}`,
+        [
+          { text: 'Stay Here', style: 'cancel' },
+          { 
+            text: 'Go to Library', 
+            onPress: () => router.push('/(tabs)/library')
+          }
+        ]
+      );
       
       // Reset form
       setPrompt('');
       setReferenceImage(null);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to generate video');
+      console.error('Generation error:', error);
+      
+      let errorMessage = 'Failed to generate video. Please try again.';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      if (error.message?.includes('401') || error.message?.includes('Invalid')) {
+        errorMessage = `Invalid API key. Please check your ${provider === 'openai' ? 'OpenAI' : 'fal.ai'} API key in the Profile tab.`;
+      } else if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+        errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
+      } else if (error.message?.includes('500') || error.message?.includes('server')) {
+        errorMessage = 'Server error. Please try again later.';
+      }
+      
+      Alert.alert('Generation Failed', errorMessage);
     } finally {
       setIsGenerating(false);
     }
@@ -79,9 +192,48 @@ export const VideoGenerationForm: React.FC = () => {
       ? ['720x1280', '1024x1792']
       : ['1280x720', '1792x1024'];
 
+  // Show loading state while checking API key
+  if (checkingApiKey) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Show API key warning if not set
+  if (!hasApiKey) {
+    const providerName = provider === 'openai' ? 'OpenAI' : 'fal.ai';
+    return (
+      <View style={styles.warningContainer}>
+        <Text style={styles.warningIcon}>🔑</Text>
+        <Text style={styles.warningTitle}>API Key Required</Text>
+        <Text style={styles.warningMessage}>
+          You need to add your {providerName} API key to generate videos.
+        </Text>
+        <Button
+          title="Go to Profile"
+          onPress={() => router.push('/(tabs)/profile')}
+          style={styles.warningButton}
+        />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Create Video</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Create Video</Text>
+        <View style={styles.providerBadge}>
+          <Text style={styles.providerBadgeText}>
+            {provider === 'openai' ? '🤖 OpenAI' : '⚡ fal.ai'}
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.subtitle}>
+        Describe your video in detail for best results
+      </Text>
 
       <Input
         label="Prompt"
@@ -92,26 +244,25 @@ export const VideoGenerationForm: React.FC = () => {
         numberOfLines={4}
         style={styles.promptInput}
       />
+      <Text style={styles.characterCount}>
+        {prompt.length} characters
+      </Text>
 
       {/* Model Selection */}
       <Text style={styles.sectionLabel}>Model</Text>
-      <View style={styles.optionRow}>
-        <TouchableOpacity
-          style={[styles.optionButton, model === 'sally-2' && styles.optionButtonActive]}
-          onPress={() => setModel('sally-2')}
-        >
-          <Text style={[styles.optionText, model === 'sally-2' && styles.optionTextActive]}>
-            Sally 2 (Fast)
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.optionButton, model === 'sally-2-pro' && styles.optionButtonActive]}
-          onPress={() => setModel('sally-2-pro')}
-        >
-          <Text style={[styles.optionText, model === 'sally-2-pro' && styles.optionTextActive]}>
-            Sally 2 Pro
-          </Text>
-        </TouchableOpacity>
+      <View style={styles.modelGrid}>
+        {availableModels.map((m) => (
+          <TouchableOpacity
+            key={m.id}
+            style={[styles.modelButton, model === m.id && styles.modelButtonActive]}
+            onPress={() => setModel(m.id)}
+          >
+            <Text style={[styles.modelText, model === m.id && styles.modelTextActive]}>
+              {m.name}
+            </Text>
+            <Text style={styles.modelSubtext}>{m.description}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* Duration Selection */}
@@ -141,7 +292,7 @@ export const VideoGenerationForm: React.FC = () => {
           }}
         >
           <Text style={[styles.optionText, aspectRatio === 'portrait' && styles.optionTextActive]}>
-            Portrait (9:16)
+            📱 Portrait (9:16)
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -152,7 +303,7 @@ export const VideoGenerationForm: React.FC = () => {
           }}
         >
           <Text style={[styles.optionText, aspectRatio === 'landscape' && styles.optionTextActive]}>
-            Landscape (16:9)
+            🖥️ Landscape (16:9)
           </Text>
         </TouchableOpacity>
       </View>
@@ -175,6 +326,9 @@ export const VideoGenerationForm: React.FC = () => {
 
       {/* Reference Image */}
       <Text style={styles.sectionLabel}>Reference Image (Optional)</Text>
+      <Text style={styles.helperText}>
+        Upload an image to animate or use as style reference
+      </Text>
       {referenceImage ? (
         <View style={styles.imageContainer}>
           <Image source={{ uri: referenceImage }} style={styles.referenceImage} />
@@ -187,17 +341,23 @@ export const VideoGenerationForm: React.FC = () => {
         </View>
       ) : (
         <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-          <Text style={styles.uploadButtonText}>+ Upload Image</Text>
+          <Text style={styles.uploadIcon}>📷</Text>
+          <Text style={styles.uploadButtonText}>Upload Image</Text>
         </TouchableOpacity>
       )}
 
       <Button
-        title="Generate Video"
+        title={isGenerating ? 'Generating...' : 'Generate Video'}
         onPress={handleGenerate}
         loading={isGenerating}
+        disabled={isGenerating || !prompt.trim()}
         fullWidth
         style={styles.generateButton}
       />
+
+      <Text style={styles.disclaimer}>
+        💡 Tip: Be specific about camera angles, lighting, and motion for best results
+      </Text>
     </ScrollView>
   );
 };
@@ -207,15 +367,80 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: Spacing.md,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  providerBadge: {
+    backgroundColor: Colors.surfaceLight,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+  },
+  providerBadgeText: {
+    fontSize: FontSizes.xs,
+    color: Colors.primary,
+    fontWeight: FontWeights.semibold,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  loadingText: {
+    color: Colors.textSecondary,
+    fontSize: FontSizes.md,
+    marginTop: Spacing.md,
+  },
+  warningContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  warningIcon: {
+    fontSize: 64,
+    marginBottom: Spacing.lg,
+  },
+  warningTitle: {
+    fontSize: FontSizes.xxl,
+    fontWeight: FontWeights.bold,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+    textAlign: 'center',
+  },
+  warningMessage: {
+    fontSize: FontSizes.md,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+    lineHeight: 22,
+  },
+  warningButton: {
+    minWidth: 200,
+  },
   title: {
     fontSize: FontSizes.xxl,
     fontWeight: FontWeights.bold,
     color: Colors.text,
+  },
+  subtitle: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
     marginBottom: Spacing.lg,
   },
   promptInput: {
     height: 100,
     textAlignVertical: 'top',
+  },
+  characterCount: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    textAlign: 'right',
+    marginTop: Spacing.xs,
   },
   sectionLabel: {
     fontSize: FontSizes.md,
@@ -223,6 +448,39 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: Spacing.sm,
     marginTop: Spacing.md,
+  },
+  helperText: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.sm,
+  },
+  modelGrid: {
+    gap: Spacing.sm,
+  },
+  modelButton: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modelButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  modelText: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
+  modelTextActive: {
+    color: Colors.text,
+  },
+  modelSubtext: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
   },
   optionRow: {
     flexDirection: 'row',
@@ -269,6 +527,11 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  uploadIcon: {
+    fontSize: 24,
   },
   uploadButtonText: {
     fontSize: FontSizes.md,
@@ -302,6 +565,13 @@ const styles = StyleSheet.create({
   },
   generateButton: {
     marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  disclaimer: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    textAlign: 'center',
     marginBottom: Spacing.xl,
+    lineHeight: 18,
   },
 });

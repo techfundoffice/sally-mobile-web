@@ -24,7 +24,8 @@ export default function LoginScreen() {
   const handleGoogleSignIn = async () => {
     try {
       await signInWithGoogle();
-      // Navigation will be handled by the root layout
+      // Navigate to home after successful sign in
+      router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to sign in with Google');
     }
@@ -38,7 +39,8 @@ export default function LoginScreen() {
 
     try {
       await signInWithEmail(email.trim(), 'demo_password');
-      // Navigation will be handled by the root layout
+      // Navigate to home after successful sign in
+      router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to sign in with email');
     }
@@ -52,7 +54,8 @@ export default function LoginScreen() {
 
     try {
       await signInWithPhone(phoneNumber.trim());
-      // Navigation will be handled by the root layout
+      // Navigate to home after successful sign in
+      router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to sign in with phone');
     }

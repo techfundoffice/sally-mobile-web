@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,9 @@ import {
   Image,
   Dimensions,
   Share,
+  ActivityIndicator,
 } from 'react-native';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { SocialVideo } from '../types';
 import { Colors, Spacing, FontSizes, FontWeights, BorderRadius } from '../constants/theme';
 import { useSocialStore } from '../store/useSocialStore';
@@ -20,8 +22,44 @@ interface SocialVideoCardProps {
 const { width, height } = Dimensions.get('window');
 
 export const SocialVideoCard: React.FC<SocialVideoCardProps> = ({ video, isActive }) => {
+  const videoRef = useRef<Video>(null);
   const { toggleLike, shareVideo } = useSocialStore();
   const [showComments, setShowComments] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Auto-play when card becomes active
+  useEffect(() => {
+    if (isActive && videoRef.current) {
+      videoRef.current.playAsync().catch((error) => {
+        console.error('Play error:', error);
+        setHasError(true);
+      });
+    } else if (!isActive && videoRef.current) {
+      videoRef.current.pauseAsync().catch((error) => {
+        console.error('Pause error:', error);
+      });
+    }
+  }, [isActive]);
+
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      setIsLoading(false);
+      setIsPlaying(status.isPlaying);
+      setIsMuted(status.isMuted);
+      
+      // Loop video when it ends
+      if (status.didJustFinish && !status.isLooping) {
+        videoRef.current?.replayAsync();
+      }
+    } else if (status.error) {
+      setIsLoading(false);
+      setHasError(true);
+      console.error('Video error:', status.error);
+    }
+  };
 
   const handleLike = () => {
     toggleLike(video.id);
@@ -38,6 +76,22 @@ export const SocialVideoCard: React.FC<SocialVideoCardProps> = ({ video, isActiv
     }
   };
 
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.setIsMutedAsync(!isMuted);
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pauseAsync();
+      } else {
+        videoRef.current.playAsync();
+      }
+    }
+  };
+
   const formatCount = (count: number): string => {
     if (count >= 1000000) {
       return `${(count / 1000000).toFixed(1)}M`;
@@ -49,8 +103,54 @@ export const SocialVideoCard: React.FC<SocialVideoCardProps> = ({ video, isActiv
 
   return (
     <View style={styles.container}>
-      {/* Video Thumbnail/Player */}
-      <Image source={{ uri: video.thumbnail_url || '' }} style={styles.video} />
+      {/* Video Player or Thumbnail */}
+      {video.download_url && !hasError ? (
+        <>
+          <Video
+            ref={videoRef}
+            source={{ uri: video.download_url }}
+            style={styles.video}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={isActive}
+            isLooping
+            isMuted={isMuted}
+            onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+          />
+          
+          {/* Loading Indicator */}
+          {isLoading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          )}
+
+          {/* Tap to Play/Pause */}
+          <TouchableOpacity 
+            style={styles.tapOverlay} 
+            onPress={togglePlayPause}
+            activeOpacity={1}
+          >
+            {!isPlaying && !isLoading && (
+              <View style={styles.pausedIcon}>
+                <Text style={styles.pausedText}>▶</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </>
+      ) : (
+        <Image 
+          source={{ uri: video.thumbnail_url || 'https://via.placeholder.com/400x800/1a1a1a/8B5CF6?text=No+Video' }} 
+          style={styles.video} 
+        />
+      )}
+
+      {/* Error State */}
+      {hasError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorText}>⚠️</Text>
+          <Text style={styles.errorMessage}>Video unavailable</Text>
+        </View>
+      )}
 
       {/* Gradient Overlay */}
       <View style={styles.gradientOverlay} />
@@ -83,6 +183,13 @@ export const SocialVideoCard: React.FC<SocialVideoCardProps> = ({ video, isActiv
           <Text style={styles.actionCount}>{formatCount(video.shares)}</Text>
         </TouchableOpacity>
 
+        {/* Mute/Unmute Button */}
+        {video.download_url && !hasError && (
+          <TouchableOpacity style={styles.actionButton} onPress={toggleMute}>
+            <Text style={styles.actionIcon}>{isMuted ? '🔇' : '🔊'}</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Model Badge */}
         <View style={styles.modelBadge}>
           <Text style={styles.modelText}>
@@ -105,15 +212,6 @@ export const SocialVideoCard: React.FC<SocialVideoCardProps> = ({ video, isActiv
           </Text>
         </View>
       </View>
-
-      {/* Play/Pause Indicator */}
-      {!isActive && (
-        <View style={styles.pausedOverlay}>
-          <View style={styles.pausedIcon}>
-            <Text style={styles.pausedText}>▶</Text>
-          </View>
-        </View>
-      )}
     </View>
   );
 };
@@ -127,7 +225,32 @@ const styles = StyleSheet.create({
   video: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  tapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  errorText: {
+    fontSize: 48,
+    marginBottom: Spacing.md,
+  },
+  errorMessage: {
+    color: Colors.text,
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.medium,
   },
   gradientOverlay: {
     position: 'absolute',
@@ -136,7 +259,6 @@ const styles = StyleSheet.create({
     right: 0,
     height: '40%',
     backgroundColor: 'transparent',
-    background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
   },
   rightActions: {
     position: 'absolute',
@@ -205,12 +327,6 @@ const styles = StyleSheet.create({
   metadataText: {
     color: Colors.textSecondary,
     fontSize: FontSizes.xs,
-  },
-  pausedOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   pausedIcon: {
     width: 80,

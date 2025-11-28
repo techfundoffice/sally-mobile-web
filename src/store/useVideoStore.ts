@@ -1,17 +1,29 @@
 import { create } from 'zustand';
 import { Video, VideoGenerationParams, RemixParams } from '../types';
 import { apiService } from '../services/api';
+import { falaiService } from '../services/falai';
+
+export type VideoProvider = 'openai' | 'falai';
 
 interface VideoStore {
   videos: Video[];
   isLoading: boolean;
   error: string | null;
-  apiKey: string | null;
+  provider: VideoProvider;
+  openaiApiKey: string | null;
+  falaiApiKey: string | null;
+  
+  // Provider management
+  setProvider: (provider: VideoProvider) => void;
+  getProvider: () => VideoProvider;
   
   // API Key management
-  setApiKey: (key: string) => Promise<void>;
-  getApiKey: () => Promise<string | null>;
-  clearApiKey: () => Promise<void>;
+  setOpenAIApiKey: (key: string) => Promise<void>;
+  setFalAIApiKey: (key: string) => Promise<void>;
+  getOpenAIApiKey: () => Promise<string | null>;
+  getFalAIApiKey: () => Promise<string | null>;
+  clearOpenAIApiKey: () => Promise<void>;
+  clearFalAIApiKey: () => Promise<void>;
   
   // Video operations
   generateVideo: (params: VideoGenerationParams) => Promise<Video>;
@@ -37,22 +49,42 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   videos: [],
   isLoading: false,
   error: null,
-  apiKey: null,
+  provider: 'openai',
+  openaiApiKey: null,
+  falaiApiKey: null,
 
-  setApiKey: async (key: string) => {
+  setProvider: (provider: VideoProvider) => {
+    set({ provider });
+  },
+
+  getProvider: () => {
+    return get().provider;
+  },
+
+  setOpenAIApiKey: async (key: string) => {
     try {
       await apiService.setApiKey(key);
-      set({ apiKey: key, error: null });
+      set({ openaiApiKey: key, error: null });
     } catch (error: any) {
       set({ error: error.message });
       throw error;
     }
   },
 
-  getApiKey: async () => {
+  setFalAIApiKey: async (key: string) => {
+    try {
+      falaiService.setApiKey(key);
+      set({ falaiApiKey: key, error: null });
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  getOpenAIApiKey: async () => {
     try {
       const key = await apiService.getApiKey();
-      set({ apiKey: key });
+      set({ openaiApiKey: key });
       return key;
     } catch (error: any) {
       set({ error: error.message });
@@ -60,10 +92,30 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
     }
   },
 
-  clearApiKey: async () => {
+  getFalAIApiKey: async () => {
+    try {
+      const key = falaiService.getApiKey();
+      set({ falaiApiKey: key });
+      return key;
+    } catch (error: any) {
+      set({ error: error.message });
+      return null;
+    }
+  },
+
+  clearOpenAIApiKey: async () => {
     try {
       await apiService.clearApiKey();
-      set({ apiKey: null });
+      set({ openaiApiKey: null });
+    } catch (error: any) {
+      set({ error: error.message });
+    }
+  },
+
+  clearFalAIApiKey: async () => {
+    try {
+      falaiService.setApiKey('');
+      set({ falaiApiKey: null });
     } catch (error: any) {
       set({ error: error.message });
     }
@@ -72,14 +124,24 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   generateVideo: async (params: VideoGenerationParams) => {
     set({ isLoading: true, error: null });
     try {
-      const video = await apiService.generateVideo(params);
+      const provider = get().provider;
+      let video: Video;
+
+      if (provider === 'falai') {
+        video = await falaiService.generateVideo(params);
+      } else {
+        video = await apiService.generateVideo(params);
+      }
+
       set((state) => ({
         videos: [video, ...state.videos],
         isLoading: false,
       }));
       
-      // Start polling for this video
-      get().startPolling(video.id);
+      // Start polling for this video (only for OpenAI)
+      if (provider === 'openai') {
+        get().startPolling(video.id);
+      }
       
       return video;
     } catch (error: any) {
@@ -90,7 +152,20 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
 
   getVideoStatus: async (videoId: string) => {
     try {
-      const video = await apiService.getVideoStatus(videoId);
+      const provider = get().provider;
+      let video: Video;
+
+      if (provider === 'falai') {
+        // fal.ai doesn't support status checking for completed videos
+        const existingVideo = get().videos.find(v => v.id === videoId);
+        if (!existingVideo) {
+          throw new Error('Video not found');
+        }
+        video = existingVideo;
+      } else {
+        video = await apiService.getVideoStatus(videoId);
+      }
+
       set((state) => ({
         videos: state.videos.map((v) => (v.id === videoId ? video : v)),
       }));
@@ -110,7 +185,16 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   listVideos: async () => {
     set({ isLoading: true, error: null });
     try {
-      const videos = await apiService.listVideos();
+      const provider = get().provider;
+      let videos: Video[];
+
+      if (provider === 'falai') {
+        // fal.ai doesn't have a list endpoint, use local videos
+        videos = get().videos;
+      } else {
+        videos = await apiService.listVideos();
+      }
+
       set({ videos, isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
@@ -120,7 +204,13 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   deleteVideo: async (videoId: string) => {
     set({ isLoading: true, error: null });
     try {
-      await apiService.deleteVideo(videoId);
+      const provider = get().provider;
+
+      if (provider === 'openai') {
+        await apiService.deleteVideo(videoId);
+      }
+      // fal.ai doesn't have delete endpoint, just remove locally
+
       set((state) => ({
         videos: state.videos.filter((v) => v.id !== videoId),
         isLoading: false,
@@ -135,6 +225,12 @@ export const useVideoStore = create<VideoStore>((set, get) => ({
   remixVideo: async (params: RemixParams) => {
     set({ isLoading: true, error: null });
     try {
+      const provider = get().provider;
+      
+      if (provider === 'falai') {
+        throw new Error('Remix is not supported by fal.ai provider');
+      }
+
       const video = await apiService.remixVideo(params);
       set((state) => ({
         videos: [video, ...state.videos],

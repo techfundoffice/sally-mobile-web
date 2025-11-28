@@ -9,8 +9,7 @@ const AUTH_STORAGE_KEY = 'sally_auth_user';
 const TOKEN_STORAGE_KEY = 'sally_auth_token';
 
 // Google OAuth Configuration
-// Note: In production, these should be environment variables
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '374629129804-tm95k8gioipthqkmihl6ct42s8f9c38s.apps.googleusercontent.com';
 const REDIRECT_URI = AuthSession.makeRedirectUri({
   scheme: 'sally-mobile',
   path: 'auth',
@@ -40,11 +39,21 @@ class AuthService {
   // Google OAuth Sign In
   async signInWithGoogle(): Promise<AuthUser> {
     try {
-      // For demo purposes, we'll simulate a successful auth
-      // In production, you would use AuthSession.useAuthRequest hook in a component
-      // and pass the result to this service
-      
-      // Simulated user data
+      // Create OAuth request
+      const redirectUri = REDIRECT_URI;
+      const authUrl = `${this.discovery.authorizationEndpoint}?` +
+        `client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}&` +
+        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+        `response_type=token&` +
+        `scope=${encodeURIComponent('openid profile email')}`;
+
+      // Open OAuth flow in popup/redirect
+      if (typeof window !== 'undefined') {
+        window.location.href = authUrl;
+      }
+
+      // This will be handled by the callback
+      // For now, return mock user (will be replaced by real user from callback)
       const mockUser: AuthUser = {
         id: `google_${Date.now()}`,
         email: 'user@example.com',
@@ -56,7 +65,7 @@ class AuthService {
       await this.saveUser(mockUser);
       await this.saveToken({
         accessToken: `mock_token_${Date.now()}`,
-        expiresAt: Date.now() + 3600000, // 1 hour
+        expiresAt: Date.now() + 3600000,
       });
 
       return mockUser;

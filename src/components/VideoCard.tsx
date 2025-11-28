@@ -16,9 +16,10 @@ interface VideoCardProps {
   video: Video;
   onPress?: () => void;
   onRemix?: () => void;
+  onDelete?: () => void;
 }
 
-export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress, onRemix }) => {
+export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress, onRemix, onDelete }) => {
   const { deleteVideo } = useVideoStore();
 
   const getStatusColor = (status: string) => {
@@ -130,7 +131,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress, onRemix })
                 <Text style={styles.actionButtonText}>🔄 Remix</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.actionButton} onPress={handleDelete}>
+            <TouchableOpacity style={styles.actionButton} onPress={onDelete || handleDelete}>
               <Text style={[styles.actionButtonText, styles.deleteText]}>🗑️ Delete</Text>
             </TouchableOpacity>
           </View>

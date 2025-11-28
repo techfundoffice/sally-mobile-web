@@ -8,29 +8,50 @@ import {
   Alert,
   Image,
 } from 'react-native';
-import { useVideoStore } from '../../src/store/useVideoStore';
+import { useVideoStore, VideoProvider } from '../../src/store/useVideoStore';
 import { useAuthStore } from '../../src/store/useAuthStore';
 import { Input } from '../../src/components/Input';
 import { Button } from '../../src/components/Button';
 import { Colors, Spacing, BorderRadius, FontSizes, FontWeights } from '../../src/constants/theme';
 
 export default function ProfileScreen() {
-  const { apiKey, setApiKey, clearApiKey, getApiKey, videos } = useVideoStore();
+  const {
+    provider,
+    setProvider,
+    openaiApiKey,
+    falaiApiKey,
+    setOpenAIApiKey,
+    setFalAIApiKey,
+    clearOpenAIApiKey,
+    clearFalAIApiKey,
+    getOpenAIApiKey,
+    getFalAIApiKey,
+    videos,
+  } = useVideoStore();
   const { user, signOut } = useAuthStore();
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  
+  const [openaiKeyInput, setOpenaiKeyInput] = useState('');
+  const [falaiKeyInput, setFalaiKeyInput] = useState('');
+  const [isEditingOpenAI, setIsEditingOpenAI] = useState(false);
+  const [isEditingFalAI, setIsEditingFalAI] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    loadApiKey();
+    loadApiKeys();
   }, []);
 
-  const loadApiKey = async () => {
-    const key = await getApiKey();
-    if (key) {
-      setApiKeyInput(maskApiKey(key));
+  const loadApiKeys = async () => {
+    const openaiKey = await getOpenAIApiKey();
+    const falaiKey = await getFalAIApiKey();
+    
+    if (openaiKey) {
+      setOpenaiKeyInput(maskApiKey(openaiKey));
     } else {
-      setIsEditing(true);
+      setIsEditingOpenAI(true);
+    }
+    
+    if (falaiKey) {
+      setFalaiKeyInput(maskApiKey(falaiKey));
     }
   };
 
@@ -39,18 +60,18 @@ export default function ProfileScreen() {
     return key.substring(0, 7) + '•'.repeat(20) + key.substring(key.length - 4);
   };
 
-  const handleSaveApiKey = async () => {
-    if (!apiKeyInput.trim()) {
+  const handleSaveOpenAIKey = async () => {
+    if (!openaiKeyInput.trim()) {
       Alert.alert('Error', 'Please enter your OpenAI API key');
       return;
     }
 
     setIsSaving(true);
     try {
-      await setApiKey(apiKeyInput.trim());
-      setIsEditing(false);
-      Alert.alert('Success', 'API key saved successfully');
-      setApiKeyInput(maskApiKey(apiKeyInput.trim()));
+      await setOpenAIApiKey(openaiKeyInput.trim());
+      setIsEditingOpenAI(false);
+      Alert.alert('Success', 'OpenAI API key saved successfully');
+      setOpenaiKeyInput(maskApiKey(openaiKeyInput.trim()));
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to save API key');
     } finally {
@@ -58,19 +79,57 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleClearApiKey = () => {
+  const handleSaveFalAIKey = async () => {
+    if (!falaiKeyInput.trim()) {
+      Alert.alert('Error', 'Please enter your fal.ai API key');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await setFalAIApiKey(falaiKeyInput.trim());
+      setIsEditingFalAI(false);
+      Alert.alert('Success', 'fal.ai API key saved successfully');
+      setFalaiKeyInput(maskApiKey(falaiKeyInput.trim()));
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to save API key');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleClearOpenAIKey = () => {
     Alert.alert(
-      'Clear API Key',
-      'Are you sure you want to remove your API key?',
+      'Clear OpenAI API Key',
+      'Are you sure you want to remove your OpenAI API key?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            await clearApiKey();
-            setApiKeyInput('');
-            setIsEditing(true);
+            await clearOpenAIApiKey();
+            setOpenaiKeyInput('');
+            setIsEditingOpenAI(true);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearFalAIKey = () => {
+    Alert.alert(
+      'Clear fal.ai API Key',
+      'Are you sure you want to remove your fal.ai API key?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await clearFalAIApiKey();
+            setFalaiKeyInput('');
+            setIsEditingFalAI(true);
           },
         },
       ]
@@ -133,36 +192,64 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* API Key Section */}
+      {/* Provider Selection */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Video Provider</Text>
+        <Text style={styles.sectionDescription}>
+          Choose which AI service to use for video generation
+        </Text>
+        <View style={styles.providerButtons}>
+          <TouchableOpacity
+            style={[styles.providerButton, provider === 'openai' && styles.providerButtonActive]}
+            onPress={() => setProvider('openai')}
+          >
+            <Text style={[styles.providerButtonText, provider === 'openai' && styles.providerButtonTextActive]}>
+              OpenAI Sally
+            </Text>
+            {provider === 'openai' && <Text style={styles.providerBadge}>Active</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.providerButton, provider === 'falai' && styles.providerButtonActive]}
+            onPress={() => setProvider('falai')}
+          >
+            <Text style={[styles.providerButtonText, provider === 'falai' && styles.providerButtonTextActive]}>
+              fal.ai
+            </Text>
+            {provider === 'falai' && <Text style={styles.providerBadge}>Active</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* OpenAI API Key Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>OpenAI API Key</Text>
         <Text style={styles.sectionDescription}>
-          Your API key is stored securely on your device and is required to generate videos.
+          Required for OpenAI Sally video generation. Get your key at platform.openai.com
         </Text>
 
-        {isEditing ? (
+        {isEditingOpenAI ? (
           <>
             <Input
-              placeholder="sk-..."
-              value={apiKeyInput}
-              onChangeText={setApiKeyInput}
-              secureTextEntry={!isEditing}
+              placeholder="sk-proj-..."
+              value={openaiKeyInput}
+              onChangeText={setOpenaiKeyInput}
+              secureTextEntry={false}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <View style={styles.buttonRow}>
               <Button
                 title="Save"
-                onPress={handleSaveApiKey}
+                onPress={handleSaveOpenAIKey}
                 loading={isSaving}
                 style={styles.button}
               />
-              {apiKey && (
+              {openaiApiKey && (
                 <Button
                   title="Cancel"
                   onPress={() => {
-                    setIsEditing(false);
-                    setApiKeyInput(maskApiKey(apiKey));
+                    setIsEditingOpenAI(false);
+                    setOpenaiKeyInput(maskApiKey(openaiApiKey));
                   }}
                   variant="outline"
                   style={styles.button}
@@ -173,24 +260,91 @@ export default function ProfileScreen() {
         ) : (
           <>
             <View style={styles.apiKeyDisplay}>
-              <Text style={styles.apiKeyText}>{apiKeyInput || 'Not set'}</Text>
+              <Text style={styles.apiKeyText}>{openaiKeyInput || 'Not set'}</Text>
             </View>
             <View style={styles.buttonRow}>
               <Button
                 title="Edit"
                 onPress={() => {
-                  setApiKeyInput('');
-                  setIsEditing(true);
+                  setOpenaiKeyInput('');
+                  setIsEditingOpenAI(true);
                 }}
                 variant="outline"
                 style={styles.button}
               />
+              {openaiApiKey && (
+                <Button
+                  title="Clear"
+                  onPress={handleClearOpenAIKey}
+                  variant="outline"
+                  style={styles.button}
+                />
+              )}
+            </View>
+          </>
+        )}
+      </View>
+
+      {/* fal.ai API Key Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>fal.ai API Key</Text>
+        <Text style={styles.sectionDescription}>
+          Required for fal.ai video generation. Get your key at fal.ai/dashboard/keys
+        </Text>
+
+        {isEditingFalAI ? (
+          <>
+            <Input
+              placeholder="FAL_KEY_ID:FAL_KEY_SECRET"
+              value={falaiKeyInput}
+              onChangeText={setFalaiKeyInput}
+              secureTextEntry={false}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.buttonRow}>
               <Button
-                title="Clear"
-                onPress={handleClearApiKey}
+                title="Save"
+                onPress={handleSaveFalAIKey}
+                loading={isSaving}
+                style={styles.button}
+              />
+              {falaiApiKey && (
+                <Button
+                  title="Cancel"
+                  onPress={() => {
+                    setIsEditingFalAI(false);
+                    setFalaiKeyInput(maskApiKey(falaiApiKey));
+                  }}
+                  variant="outline"
+                  style={styles.button}
+                />
+              )}
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.apiKeyDisplay}>
+              <Text style={styles.apiKeyText}>{falaiKeyInput || 'Not set'}</Text>
+            </View>
+            <View style={styles.buttonRow}>
+              <Button
+                title="Edit"
+                onPress={() => {
+                  setFalaiKeyInput('');
+                  setIsEditingFalAI(true);
+                }}
                 variant="outline"
                 style={styles.button}
               />
+              {falaiApiKey && (
+                <Button
+                  title="Clear"
+                  onPress={handleClearFalAIKey}
+                  variant="outline"
+                  style={styles.button}
+                />
+              )}
             </View>
           </>
         )}
@@ -204,16 +358,9 @@ export default function ProfileScreen() {
           <Text style={styles.infoValue}>1.0.0</Text>
         </View>
         <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Powered by</Text>
-          <Text style={styles.infoValue}>OpenAI Sally</Text>
+          <Text style={styles.infoLabel}>Active Provider</Text>
+          <Text style={styles.infoValue}>{provider === 'openai' ? 'OpenAI Sally' : 'fal.ai'}</Text>
         </View>
-      </View>
-
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          Get your API key at{' '}
-          <Text style={styles.link}>platform.openai.com</Text>
-        </Text>
       </View>
 
       {/* Sign Out Button */}
@@ -301,6 +448,37 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     lineHeight: 20,
   },
+  providerButtons: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  providerButton: {
+    flex: 1,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+  },
+  providerButtonActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.surfaceLight,
+  },
+  providerButtonText: {
+    fontSize: FontSizes.md,
+    fontWeight: FontWeights.semibold,
+    color: Colors.textSecondary,
+  },
+  providerButtonTextActive: {
+    color: Colors.primary,
+  },
+  providerBadge: {
+    marginTop: Spacing.xs,
+    fontSize: FontSizes.xs,
+    color: Colors.primary,
+    fontWeight: FontWeights.bold,
+  },
   apiKeyDisplay: {
     backgroundColor: Colors.surface,
     padding: Spacing.md,
@@ -331,19 +509,6 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: FontSizes.md,
     color: Colors.text,
-    fontWeight: FontWeights.medium,
-  },
-  footer: {
-    padding: Spacing.md,
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: FontSizes.sm,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  link: {
-    color: Colors.primary,
     fontWeight: FontWeights.medium,
   },
   signOutContainer: {

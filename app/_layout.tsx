@@ -16,19 +16,16 @@ export default function RootLayout() {
   }, []);
 
   // Handle navigation based on auth state
-  useEffect(() => {
-    if (!isInitialized) return;
-
-    const inAuthGroup = segments[0] === 'login';
-
-    if (!user && !inAuthGroup) {
-      // User is not signed in and not on login screen, redirect to login
-      router.replace('/login');
-    } else if (user && inAuthGroup) {
-      // User is signed in but on login screen, redirect to home
-      router.replace('/(tabs)');
-    }
-  }, [user, isInitialized, segments]);
+  // Disabled for web to avoid routing conflicts
+  // useEffect(() => {
+  //   if (!isInitialized) return;
+  //   const inAuthGroup = segments[0] === 'login';
+  //   if (!user && !inAuthGroup) {
+  //     router.replace('/login');
+  //   } else if (user && inAuthGroup) {
+  //     router.replace('/(tabs)');
+  //   }
+  // }, [user, isInitialized, segments]);
 
   // Show loading screen while initializing
   if (!isInitialized) {
